@@ -99,7 +99,7 @@ impl Deck {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug,Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum HandType {
     HighCard,
     Pair,
@@ -134,26 +134,38 @@ impl HandType {
 
 #[derive(Debug, Clone)]
 struct Hand {
-    cards: Vec<Card>,
+    hand_type: Option<HandType>,
+    combo: Option<Vec<Card>>,
+    
 }
 
 impl Hand {
-    fn new(cards: Vec<Card>) -> Self {
-        Hand { cards }
+    fn new() -> Self {
+        Hand { 
+            hand_type: None,
+            combo: None,
+        }
     }
 
-    fn evaluate(&self, community_cards: &[Card]) -> HandType {
-        let mut all_cards = [&self.cards[..], community_cards].concat();
-        all_cards.sort_by_key(|card| card.rank);
+    fn evaluate(&self, player_cards: &[Card], community_cards: &[Card]) -> HandType {
 
+        let mut all_cards = [player_cards, community_cards].concat();
+        all_cards.sort_by_key(|card| card.rank);
         let mut best_hand = HandType::HighCard; // lowest handtype
+        let mut best_combo = vec![];
+                                                
+                                                
         for combo in all_cards.iter().combinations(5) {
-            let hand_type = evaluate(&combo);
+            let hand_type = evaluate_hand(&combo);
             if hand_type > best_hand {
                 best_hand = hand_type;
+                best_combo = combo.iter().map(|&&card| card).collect();
+                
             }
         }
-        best_hand 
+        self.combo = Some(best_combo);
+        self.hand_type = Some(best_hand);
+        best_hand
     }
 
 }
@@ -176,7 +188,7 @@ fn is_straight(ranks: &Vec<&Rank>) -> bool {
     true
 }
 
-fn evaluate(cards: &[&Card]) -> HandType {
+fn evaluate_hand(cards: &[&Card]) -> HandType {
 
     // cards by rank should be sorted in acceding order 
     let mut ranks = cards.iter().map(|card| &card.rank).collect::<Vec<_>>();
@@ -194,12 +206,12 @@ fn evaluate(cards: &[&Card]) -> HandType {
     }
 
     let mut suites = cards.iter().map(|card| &card.suit).collect::<Vec<_>>();
-    
+    suites.dedup(); // remove dublicates
+                    
     let mut flush = false;
     if suites.len() == 1 {
         flush = true;
     }
-    suites.dedup(); // remove dublicates
 
     if straight && flush && ranks[0] == &Rank::Ten {
         HandType::RoyalFlush
@@ -234,9 +246,39 @@ fn evaluate(cards: &[&Card]) -> HandType {
 
 }
 
+#[derive(Debug)]
+struct Player {
+    nickname: String,
+    position: Position,
+    cards: [Card; 2],
+    hand: Option<Hand>,
+    // chips: Option<>,
+
+}
+
+#[derive(Debug)]
+enum Position {
+    BTN,
+    SB,
+    BB,
+    UTG,
+    UTG1,
+    UTG2,
+    MP,
+    HJ,
+    CO,
+
+}
+
+#[derive(Debug)]
+struct Board {
+    current_player: Player,
+    players: Vec<Player>,
+}
+
 fn main() {
     let mut hand_types_count = std::collections::HashMap::new();
-    let runs = 3_000_000;
+    let runs = 6_000_000;
     for _ in 0..runs {
         let mut deck = Deck::new();
         deck.shuffle();
@@ -245,13 +287,13 @@ fn main() {
             dealt.push(deck.cards.remove(0))
         }
 
-        let hand = Hand::new(dealt);
+        let hand = Hand::new();
         let mut community_cards = Vec::new();
         for _ in 0..5 {
             community_cards.push(deck.cards.remove(0))
         }
 
-        let handtype = hand.evaluate(&community_cards);
+        let handtype = hand.evaluate(&dealt, &community_cards);
 
         *hand_types_count.entry(handtype).or_insert(0) += 1;
 
@@ -269,7 +311,7 @@ fn main() {
     } 
 
     for (hand_type, count) in hand_types_count {
-        println!("{:?} occurred {} %", hand_type, count as f64 / runs as f64);
+        println!("{} occurred {} %", hand_type.to_string(), count as f64 / runs as f64);
     }
 
 }
